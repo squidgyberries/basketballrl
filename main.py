@@ -619,22 +619,6 @@ class BipedalWalker(gym.Env, EzPickle):
                             color=obj.color1,
                         )
 
-        flagy1 = TERRAIN_HEIGHT * SCALE
-        flagy2 = flagy1 + 50
-        x = TERRAIN_STEP * 3 * SCALE
-        pygame.draw.aaline(
-            self.surf, color=(0, 0, 0), start_pos=(x, flagy1), end_pos=(x, flagy2)
-        )
-        f = [
-            (x, flagy2),
-            (x, flagy2 - 10),
-            (x + 25, flagy2 - 5),
-        ]
-        pygame.draw.polygon(self.surf, color=(230, 51, 0), points=f)
-        pygame.draw.lines(
-            self.surf, color=(0, 0, 0), points=f + [f[0]], width=1, closed=False
-        )
-
         self.surf = pygame.transform.flip(self.surf, False, True)
 
         if self.render_mode == "human":
