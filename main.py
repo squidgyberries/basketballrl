@@ -117,65 +117,18 @@ class ContactDetector(contactListener):
         #         arm.ground_contact = False
         pass
 
-class BasketballEnvironment(gym.Env):
-    def __init__(self):
-
-        super().__init__()
-        # Create physics world with gravity going down
-        self.world = Box2D.b2World(gravity=(0, -10))
-        
-        # This list stores all bodies to draw later
-        self.drawlist = []
-
-        # Add the basketball hoop
-        self._add_hoop(position=(20, 10))
-
-        # Add the ball
-        self._add_ball()
-    def _add_hoop(self, position):
-        x, y= position 
-        #backboard
-        backboard = self.world.createStaticBody(
-            position=(x+0.5, y+1),
-            shapes=polygonShape(box=(0.1, 1.0))
-        )
-        backboard.color1=(150,150,150)
-        backboard.color2=(100,100,100)
-        self.drawlist.append(backboard)
-        #rim
-        rim = self.world.createStaticBody(
-            position = (x,y),
-            shapes=polygonShape(box=(0.75, 0.05))
-        )
-        rim.color1 = (255,0,0)
-        rim.color2 = (200,0,0)
-        self.drawlist.append(rim)
-
-        #supports
-        for dx in [-0.75, 0.75]:
-            support = self.world.CreateStaticBody(
-                position=(x + dx, y + 0.15),
-                shapes=polygonShape(box=(0.05, 0.2))
-            )
-            support.color1 = (255, 0, 0)
-            support.color2 = (200, 0, 0)
-            self.drawlist.append(support)
-    
-
-
-
 class BipedalWalker(gym.Env, EzPickle):
 
     def _add_ball(self, position=(10, 10), radius=0.5):
         ball_fixture = fixtureDef(
-        shape=circleShape(radius=radius),
-        density=1.0,
-        friction=0.3,
-        restitution=0.6,  # bounciness
+            shape=circleShape(radius=radius),
+            density=1.0,
+            friction=0.3,
+            restitution=0.6,  # bounciness
         )
         ball = self.world.CreateDynamicBody(
-        position=position,
-        fixtures=ball_fixture,
+            position=position,
+            fixtures=ball_fixture,
         )
         ball.color1 = (255, 165, 0) #inside color
         ball.color2 = (204, 102, 0) #border color
@@ -493,7 +446,7 @@ class BipedalWalker(gym.Env, EzPickle):
 
         self.drawlist = self.terrain + self.arms + [self.hull]
 
-        # self._add_ball(position=(init_x + 2, init_y + 2), radius=0.5)
+        self._add_ball(position=(init_x + ARM_L - HAND_L / 2 + 0.5, init_y + ARM_L + 0.5), radius=0.5)
 
         if self.render_mode == "human":
             self.render()
