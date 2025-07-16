@@ -1,6 +1,7 @@
 __credits__ = ["Andrea PIERRÉ"]
 
 import math
+import os
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -11,6 +12,10 @@ from gymnasium.error import DependencyNotInstalled
 from gymnasium.utils import EzPickle
 
 from stable_baselines3 import PPO
+from stable_baselines3.common.env_checker import check_env
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.vec_env import DummyVecEnv, VecVideoRecorder
+from stable_baselines3.common.evaluation import evaluate_policy
 
 
 try:
@@ -36,9 +41,9 @@ FPS = 50
 SCALE = 30.0  # affects how fast-paced the game is, forces should be adjusted as well
 
 MOTORS_TORQUE = 80
-SPEED_SHOULDER = 4
-SPEED_ELBOW = 4
-SPEED_WRIST = 4
+SPEED_SHOULDER = 5
+SPEED_ELBOW = 5
+SPEED_WRIST = 5
 
 INITIAL_RANDOM = 5
 
@@ -87,7 +92,7 @@ FOREARM_FD = fixtureDef(
 HAND_FD = fixtureDef(
     shape=polygonShape(box=(HAND_L / 2, HAND_W / 2)),
     density=1.0,
-    friction=0.5,
+    friction=1.0,
     restitution=0.0,
     categoryBits=0x0020,
     maskBits=0x001,
@@ -116,9 +121,9 @@ class ContactDetector(contactListener):
         #         arm.ground_contact = False
         pass
 
-class BipedalWalker(gym.Env, EzPickle):
+class BasketballArm(gym.Env, EzPickle):
 
-    def _add_hoop(self, position=(9.25,8)):
+    def _add_hoop(self, position=(12,8)):
         x, y= position 
         #backboard
         backboard = self.world.CreateStaticBody(
@@ -263,71 +268,40 @@ class BipedalWalker(gym.Env, EzPickle):
         # 5 x the rated speed due to impulses from ground contact etc.
         low = np.array(
             [
-                -math.pi,
+                -np.inf,
+                -np.inf,
                 -5.0,
-                -5.0,
-                -5.0,
-                -math.pi,
-                -5.0,
-                -math.pi,
-                -5.0,
-                -0.0,
                 -math.pi,
                 -5.0,
                 -math.pi,
                 -5.0,
-                -0.0,
+                -math.pi,
             ]
-            + [-1.0] * 10
         ).astype(np.float32)
         high = np.array(
             [
-                math.pi,
-                5.0,
-                5.0,
-                5.0,
-                math.pi,
-                5.0,
-                math.pi,
-                5.0,
+                np.inf,
+                np.inf,
                 5.0,
                 math.pi,
                 5.0,
                 math.pi,
                 5.0,
-                5.0,
+                math.pi,
             ]
-            + [1.0] * 10
         ).astype(np.float32)
         self.action_space = spaces.Box(
-            np.array([-1, -1, -1, -1]).astype(np.float32),
-            np.array([1, 1, 1, 1]).astype(np.float32),
+            np.array([-1, -1, -1]).astype(np.float32),
+            np.array([1, 1, 1]).astype(np.float32),
         )
         self.observation_space = spaces.Box(low, high)
-
-        # state = [
-        #     self.hull.angle,  # Normal angles up to 0.5 here, but sure more is possible.
-        #     2.0 * self.hull.angularVelocity / FPS,
-        #     0.3 * vel.x * (VIEWPORT_W / SCALE) / FPS,  # Normalized to get -1..1 range
-        #     0.3 * vel.y * (VIEWPORT_H / SCALE) / FPS,
-        #     self.joints[
-        #         0
-        #     ].angle,  # This will give 1.1 on high up, but it's still OK (and there should be spikes on hitting the ground, that's normal too)
-        #     self.joints[0].speed / SPEED_HIP,
-        #     self.joints[1].angle + 1.0,
-        #     self.joints[1].speed / SPEED_KNEE,
-        #     1.0 if self.arms[1].ground_contact else 0.0,
-        #     self.joints[2].angle,
-        #     self.joints[2].speed / SPEED_HIP,
-        #     self.joints[3].angle + 1.0,
-        #     self.joints[3].speed / SPEED_KNEE,
-        #     1.0 if self.arms[3].ground_contact else 0.0,
-        # ]
-        # state += [l.fraction for l in self.lidar]
 
         self.render_mode = render_mode
         self.screen: pygame.Surface | None = None
         self.clock = None
+
+        self.max_x = 0
+        self.max_y = 0
 
     def _destroy(self):
         if not self.terrain:
@@ -406,9 +380,6 @@ class BipedalWalker(gym.Env, EzPickle):
         )
         self.hull.color1 = (127, 51, 229)
         self.hull.color2 = (76, 76, 127)
-        self.hull.ApplyForceToCenter(
-            (self.np_random.uniform(-INITIAL_RANDOM, INITIAL_RANDOM), 0), True
-        )
 
         self.arms: list[Box2D.b2Body] = []
         self.joints: list[Box2D.b2RevoluteJoint] = []
@@ -428,7 +399,7 @@ class BipedalWalker(gym.Env, EzPickle):
             enableLimit=True,
             maxMotorTorque=MOTORS_TORQUE,
             motorSpeed=0,
-            lowerAngle=-np.pi / 3,
+            lowerAngle=-np.pi / 2,
             upperAngle=np.pi / 3,
         )
         self.arms.append(upper_arm)
@@ -450,7 +421,7 @@ class BipedalWalker(gym.Env, EzPickle):
             enableLimit=True,
             maxMotorTorque=MOTORS_TORQUE,
             motorSpeed=0,
-            lowerAngle=-np.pi / 3,
+            lowerAngle=-np.pi / 2,
             upperAngle=np.pi / 3,
         )
         self.arms.append(forearm)
@@ -472,7 +443,7 @@ class BipedalWalker(gym.Env, EzPickle):
             enableLimit=True,
             maxMotorTorque=MOTORS_TORQUE,
             motorSpeed=0,
-            lowerAngle=-np.pi / 3,
+            lowerAngle=-np.pi / 2,
             upperAngle=np.pi / 3,
         )
         self.arms.append(hand)
@@ -482,6 +453,9 @@ class BipedalWalker(gym.Env, EzPickle):
 
         self._add_ball(position=(init_x + ARM_L - HAND_L / 2 + 0.5, init_y + ARM_L + 0.5), radius=0.5)
         self._add_hoop()
+
+        self.max_x = 0
+        self.max_y = 0
 
         if self.render_mode == "human":
             self.render()
@@ -550,15 +524,18 @@ class BipedalWalker(gym.Env, EzPickle):
             reward = shaping - self.prev_shaping
         self.prev_shaping = shaping
 
+        ball_x, ball_y = self.ball.position[0], self.ball.position[1]
+
+        self.max_x = max(self.max_x, ball_x)
+        self.max_y = max(self.max_y, ball_y)
+
+        reward = self.max_x * 0.5 + self.max_y  # prioritize vertical distance
+
         for a in action:
-            reward -= 0.00035 * MOTORS_TORQUE * np.clip(np.abs(a), 0, 1)
-            # normalized to about -50.0 using heuristic, more optimal agent should spend less
+            reward -= 0.0003 * MOTORS_TORQUE * np.clip(np.abs(a), 0, 1)
 
         terminated = False
-        if self.game_over or pos[0] < 0:
-            reward = -100
-            terminated = True
-        if pos[0] > (TERRAIN_LENGTH - TERRAIN_GRASS) * TERRAIN_STEP:
+        if self.ball.position[1] <= TERRAIN_HEIGHT + 0.6:
             terminated = True
 
         if self.render_mode == "human":
@@ -675,7 +652,7 @@ class BipedalWalker(gym.Env, EzPickle):
             self.isopen = False
 
 
-class BipedalWalkerHeuristics:
+class BasketballArmHeuristics:
     def __init__(self):
         self.phase = 0
         self.timer = 0
@@ -711,35 +688,97 @@ class BipedalWalkerHeuristics:
             self.phase = (self.phase + 1) % len(self.phases)
             self.timer = 0
 
-        return self.action
+        # return self.action
+        return np.array([0.5, 0.5, -1.0])
+
+
+def make_env(record_video=False, video_folder="videos", video_length=1000):
+    def _init():
+        env = BasketballArm(render_mode='rgb_array')
+        env.reset()
+        env = Monitor(env)  # for logging
+        return env
+
+    env = DummyVecEnv([_init])
+
+    if record_video:
+        env = VecVideoRecorder(
+            env,
+            video_folder=video_folder,
+            record_video_trigger=lambda x: x % 10000 == 0,
+            video_length=video_length,
+            name_prefix="basketball_arm_episode",
+        )
+
+    return env
+
+
+def train_model(total_timesteps=200_000, log_dir="logs"):
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs("videos", exist_ok=True)
+
+    env = make_env(record_video=True)
+
+    # model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=log_dir)
+    model = PPO("MlpPolicy", env, verbose=1)
+    model.learn(total_timesteps=total_timesteps)
+    model.save("ppo_basketball_arm")
+
+    return model
+
+
+def evaluate_and_render(model_path="ppo_basketball_arm", episodes=5):
+    env = BasketballArm(render_mode="human")
+
+    model = PPO.load(model_path)
+
+    for ep in range(episodes):
+        obs, _ = env.reset()
+        done = False
+        total_reward = 0
+        while not done:
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, terminated, truncated, _ = env.step(action)
+            total_reward += reward
+            done = terminated or truncated
+        print(f"Episode {ep + 1} reward: {total_reward:.2f}")
+    env.close()
 
 
 if __name__ == "__main__":
-    env = BipedalWalker(render_mode="human")
-    env.reset()
-    steps = 0
-    total_reward = 0
-    a = np.array([0.0, 0.0, 0.0])
-    # Heurisic: suboptimal, have no notion of balance.
-    heuristics = BipedalWalkerHeuristics()
-    while True:
-        s, r, terminated, truncated, info = env.step(a)
-        total_reward += r
-        if steps % 20 == 0 or terminated or truncated:
-            print("\naction " + str([f"{x:+0.2f}" for x in a]))
-            print(f"step {steps} total_reward {total_reward:+0.2f}")
-            print("hull " + str([f"{x:+0.2f}" for x in s[0:4]]))
-            print("leg0 " + str([f"{x:+0.2f}" for x in s[4:9]]))
-            print("leg1 " + str([f"{x:+0.2f}" for x in s[9:14]]))
-        steps += 1
+    model = train_model()
 
-        a = heuristics.step_heuristic(s)
+    # Evaluate and visualize
+    evaluate_and_render()
 
-        if steps > 300:
-            env.reset()
-            steps = 0
-            total_reward = 0
-            a = np.array([0.0, 0.0, 0.0])
+# if __name__ == "__main__":
+#     env = BasketballArm(render_mode="human")
+#     env.reset()
 
-        if terminated or truncated:
-            break
+    
+#     steps = 0
+#     total_reward = 0
+#     a = np.array([0.0, 0.0, 0.0])
+#     # Heurisic: suboptimal, have no notion of balance.
+#     heuristics = BasketballArmHeuristics()
+#     while True:
+#         s, r, terminated, truncated, info = env.step(a)
+#         total_reward += r
+#         if steps % 20 == 0 or terminated or truncated:
+#             print("\naction " + str([f"{x:+0.2f}" for x in a]))
+#             print(f"step {steps} total_reward {total_reward:+0.2f}")
+#             print("hull " + str([f"{x:+0.2f}" for x in s[0:4]]))
+#             print("leg0 " + str([f"{x:+0.2f}" for x in s[4:9]]))
+#             print("leg1 " + str([f"{x:+0.2f}" for x in s[9:14]]))
+#         steps += 1
+
+#         a = heuristics.step_heuristic(s)
+
+#         if steps > 300:
+#             env.reset()
+#             steps = 0
+#             total_reward = 0
+#             a = np.array([0.0, 0.0, 0.0])
+
+#         if terminated or truncated:
+#             break

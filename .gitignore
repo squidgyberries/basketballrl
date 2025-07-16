@@ -1,1 +1,5 @@
 .venv/
+videos/
+logs/
+ppo_basketball_arm.zip
+__pycache__
