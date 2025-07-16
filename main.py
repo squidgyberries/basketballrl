@@ -115,6 +115,36 @@ class ContactDetector(contactListener):
         pass
 
 class BipedalWalker(gym.Env, EzPickle):
+    
+    def _add_hoop(self, position=(20,10)):
+        x, y= position 
+        #backboard
+        backboard = self.world.createStaticBody(
+            position=(x+0.5, y+1),
+            shapes=polygonShape(box=(0.1, 1.0))
+        )
+        backboard.color1=(150,150,150)
+        backboard.color2=(100,100,100)
+        self.drawlist.append(backboard)
+        #rim
+        rim = self.world.createStaticBody(
+            position = (x,y),
+            shapes=polygonShape(box=(0.75, 0.05))
+        )
+        rim.color1 = (255,0,0)
+        rim.color2 = (200,0,0)
+        
+        self.drawlist.append(rim)
+
+        #supports
+        for dx in [-0.75, 0.75]:
+            support = self.world.createStaticBody(
+                position=(x + dx, y + 0.15),
+                shapes=polygonShape(box=(0.05, 0.2))
+            )
+            support.color1 = (255, 0, 0)
+            support.color2 = (200, 0, 0)
+            self.drawlist.append(support)
 
     def _add_ball(self, position=(10, 10), radius=0.5):
         ball_fixture = fixtureDef(
