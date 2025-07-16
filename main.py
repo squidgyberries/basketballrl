@@ -10,6 +10,8 @@ from gymnasium import error, spaces
 from gymnasium.error import DependencyNotInstalled
 from gymnasium.utils import EzPickle
 
+from stable_baselines3 import PPO
+
 
 try:
     import Box2D
@@ -145,7 +147,7 @@ class BipedalWalker(gym.Env, EzPickle):
         support = self.world.CreateStaticBody(
             position=(x-1.15 , y + 0.15),
             shapes=polygonShape(box=(0.05, 0.2))
-            )
+        )
         support.color1 = (255, 0, 0)
         support.color2 = (200, 0, 0)
         self.drawlist.append(support)
@@ -674,42 +676,42 @@ class BipedalWalker(gym.Env, EzPickle):
 
 
 class BipedalWalkerHeuristics:
-    STAY_ON_ONE_LEG, PUT_OTHER_DOWN, PUSH_OFF = 1, 2, 3
-    SPEED = 0.29  # Will fall forward on higher speed
-    state = STAY_ON_ONE_LEG
-    moving_leg = 0
-    supporting_leg = 1 - moving_leg
-    SUPPORT_KNEE_ANGLE = +0.1
-    supporting_knee_angle = SUPPORT_KNEE_ANGLE
-    a = np.array([0.0, 0.0, 0.0, 0.0])
+    def __init__(self):
+        self.phase = 0
+        self.timer = 0
+        self.action = np.zeros(3)
 
-    def step_heuristic(self, s):
-        hip_targ = [None, None]  # -0.8 .. +1.1
-        knee_targ = [None, None]  # -0.6 .. +0.9
-        hip_todo = [0.0, 0.0]
-        knee_todo = [0.0, 0.0]
+        # Define joint angle targets for a basic shooting sequence
+        self.phases = [
+            {"shoulder": -0.5, "elbow": 0.8, "wrist": -0.2, "duration": 30},  # Wind-up
+            {"shoulder": 0.3, "elbow": -0.2, "wrist": 1.0, "duration": 10},  # Throw
+            {"shoulder": 0.0, "elbow": 0.0, "wrist": 0.0, "duration": 20},   # Follow-through / Reset
+        ]
 
-        if hip_targ[0]:
-            hip_todo[0] = 0.9 * (hip_targ[0] - s[4]) - 0.25 * s[5]
-        if hip_targ[1]:
-            hip_todo[1] = 0.9 * (hip_targ[1] - s[9]) - 0.25 * s[10]
-        if knee_targ[0]:
-            knee_todo[0] = 4.0 * (knee_targ[0] - s[6]) - 0.25 * s[7]
-        if knee_targ[1]:
-            knee_todo[1] = 4.0 * (knee_targ[1] - s[11]) - 0.25 * s[12]
+    def step_heuristic(self, state):
+        target = self.phases[self.phase]
+        shoulder_angle = state[2]
+        shoulder_speed = state[3]
+        elbow_angle = state[4]
+        elbow_speed = state[5]
+        wrist_angle = state[6]
+        wrist_speed = state[7]
 
-        hip_todo[0] -= 0.9 * (0 - s[0]) - 1.5 * s[1]  # PID to keep head strait
-        hip_todo[1] -= 0.9 * (0 - s[0]) - 1.5 * s[1]
-        knee_todo[0] -= 15.0 * s[3]  # vertical speed, to damp oscillations
-        knee_todo[1] -= 15.0 * s[3]
+        # PID-like control: target - current - some damping
+        shoulder_todo = 5.0 * (target["shoulder"] - shoulder_angle) - 0.2 * shoulder_speed
+        elbow_todo = 5.0 * (target["elbow"] - elbow_angle) - 0.2 * elbow_speed
+        wrist_todo = 5.0 * (target["wrist"] - wrist_angle) - 0.2 * wrist_speed
 
-        self.a[0] = hip_todo[0]
-        self.a[1] = knee_todo[0]
-        self.a[2] = hip_todo[1]
-        self.a[3] = knee_todo[1]
-        self.a = np.clip(0.5 * self.a, -1.0, 1.0)
+        self.action[0] = np.clip(shoulder_todo, -1.0, 1.0)
+        self.action[1] = np.clip(elbow_todo, -1.0, 1.0)
+        self.action[2] = np.clip(wrist_todo, -1.0, 1.0)
 
-        return self.a
+        self.timer += 1
+        if self.timer >= target["duration"]:
+            self.phase = (self.phase + 1) % len(self.phases)
+            self.timer = 0
+
+        return self.action
 
 
 if __name__ == "__main__":
