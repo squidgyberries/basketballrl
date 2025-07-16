@@ -34,16 +34,12 @@ FPS = 50
 SCALE = 30.0  # affects how fast-paced the game is, forces should be adjusted as well
 
 MOTORS_TORQUE = 80
-# SPEED_HIP = 4
-# SPEED_KNEE = 6
 SPEED_SHOULDER = 4
 SPEED_ELBOW = 4
 SPEED_WRIST = 4
-LIDAR_RANGE = 160 / SCALE
 
 INITIAL_RANDOM = 5
 
-HULL_POLY = [(-30, +9), (+6, +9), (+34, +1), (+34, -8), (-30, -8)]
 LEG_DOWN = -8 / SCALE
 LEG_W, LEG_H = 8 / SCALE, 34 / SCALE
 
@@ -63,25 +59,18 @@ TERRAIN_STARTPAD = 20  # in steps
 FRICTION = 2.5
 
 HULL_FD = fixtureDef(
-    shape=polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in HULL_POLY]),
+    shape=circleShape(radius=0.5),
     density=5.0,
-    friction=0.1,
+    friction=0.0,
     categoryBits=0x0020,
     maskBits=0x001,  # collide only with ground
     restitution=0.0,
 )  # 0.99 bouncy
 
-LEG_FD = fixtureDef(
-    shape=polygonShape(box=(LEG_W / 2, LEG_H / 2)),
-    density=1.0,
-    restitution=0.0,
-    categoryBits=0x0020,
-    maskBits=0x001,
-)
-
 UPPER_ARM_FD = fixtureDef(
     shape=polygonShape(box=(ARM_L / 2, ARM_W / 2)),
     density=1.0,
+    friction=0.5,
     restitution=0.0,
     categoryBits=0x0020,
     maskBits=0x001,
@@ -90,6 +79,7 @@ UPPER_ARM_FD = fixtureDef(
 FOREARM_FD = fixtureDef(
     shape=polygonShape(box=(ARM_W / 2, ARM_L / 2)),
     density=1.0,
+    friction=0.5,
     restitution=0.0,
     categoryBits=0x0020,
     maskBits=0x001,
@@ -98,14 +88,7 @@ FOREARM_FD = fixtureDef(
 HAND_FD = fixtureDef(
     shape=polygonShape(box=(HAND_L / 2, HAND_W / 2)),
     density=1.0,
-    restitution=0.0,
-    categoryBits=0x0020,
-    maskBits=0x001,
-)
-
-LOWER_FD = fixtureDef(
-    shape=polygonShape(box=(0.8 * LEG_W / 2, LEG_H / 2)),
-    density=1.0,
+    friction=0.5,
     restitution=0.0,
     categoryBits=0x0020,
     maskBits=0x001,
@@ -380,21 +363,15 @@ class BipedalWalker(gym.Env, EzPickle):
         self.game_over = False
         self.prev_shaping = None
         self.scroll = 0.0
-        self.lidar_render = 0
 
         self._generate_terrain()
         print(self.terrain)
 
         init_x = TERRAIN_STEP * TERRAIN_STARTPAD / 2
         init_y = TERRAIN_HEIGHT + 2 * LEG_H
-        ball_fixture = fixtureDef(
-            shape=circleShape(radius=0.5),
-            density=1.0,
-            friction=0.0,
-            restitution=0.0,  # bounciness
-        )
+        
         self.hull = self.world.CreateStaticBody(
-            position=(init_x, init_y), fixtures=ball_fixture
+            position=(init_x, init_y), fixtures=HULL_FD,
         )
         self.hull.color1 = (127, 51, 229)
         self.hull.color2 = (76, 76, 127)
@@ -404,143 +381,76 @@ class BipedalWalker(gym.Env, EzPickle):
 
         self.arms: list[Box2D.b2Body] = []
         self.joints: list[Box2D.b2RevoluteJoint] = []
-        # for i in [-1, +1]:
-        for i in [0]:
-            upper_arm = self.world.CreateDynamicBody(
-                position=(init_x + ARM_L / 2, init_y),
-                angle=0,
-                fixtures=UPPER_ARM_FD,
-            )
-            upper_arm.color1 = (255, 0, 0)
-            upper_arm.color2 = (255, 0, 0)
-            rjd = revoluteJointDef(
-                bodyA=self.hull,
-                bodyB=upper_arm,
-                localAnchorA=(0, 0),
-                localAnchorB=(-ARM_L / 2, 0),
-                enableMotor=True,
-                enableLimit=True,
-                maxMotorTorque=MOTORS_TORQUE,
-                motorSpeed=0,
-                lowerAngle=-np.pi / 3,
-                upperAngle=np.pi / 3,
-            )
-            self.arms.append(upper_arm)
-            self.joints.append(self.world.CreateJoint(rjd))
+        upper_arm = self.world.CreateDynamicBody(
+            position=(init_x + ARM_L / 2, init_y),
+            angle=0,
+            fixtures=UPPER_ARM_FD,
+        )
+        upper_arm.color1 = (255, 0, 0)
+        upper_arm.color2 = (255, 0, 0)
+        rjd = revoluteJointDef(
+            bodyA=self.hull,
+            bodyB=upper_arm,
+            localAnchorA=(0, 0),
+            localAnchorB=(-ARM_L / 2, 0),
+            enableMotor=True,
+            enableLimit=True,
+            maxMotorTorque=MOTORS_TORQUE,
+            motorSpeed=0,
+            lowerAngle=-np.pi / 3,
+            upperAngle=np.pi / 3,
+        )
+        self.arms.append(upper_arm)
+        self.joints.append(self.world.CreateJoint(rjd))
 
-            forearm = self.world.CreateDynamicBody(
-                position=(init_x + ARM_L, init_y + ARM_L / 2),
-                angle=0,
-                fixtures=FOREARM_FD,
-            )
-            forearm.color1 = (0, 255, 0)
-            forearm.color2 = (0, 255, 0)
-            rjd = revoluteJointDef(
-                bodyA=upper_arm,
-                bodyB=forearm,
-                localAnchorA=(ARM_L / 2, 0),
-                localAnchorB=(0, -ARM_L / 2),
-                enableMotor=True,
-                enableLimit=True,
-                maxMotorTorque=MOTORS_TORQUE,
-                motorSpeed=0,
-                lowerAngle=-np.pi / 3,
-                upperAngle=np.pi / 3,
-            )
-            self.arms.append(forearm)
-            self.joints.append(self.world.CreateJoint(rjd))
+        forearm = self.world.CreateDynamicBody(
+            position=(init_x + ARM_L, init_y + ARM_L / 2),
+            angle=0,
+            fixtures=FOREARM_FD,
+        )
+        forearm.color1 = (0, 255, 0)
+        forearm.color2 = (0, 255, 0)
+        rjd = revoluteJointDef(
+            bodyA=upper_arm,
+            bodyB=forearm,
+            localAnchorA=(ARM_L / 2, 0),
+            localAnchorB=(0, -ARM_L / 2),
+            enableMotor=True,
+            enableLimit=True,
+            maxMotorTorque=MOTORS_TORQUE,
+            motorSpeed=0,
+            lowerAngle=-np.pi / 3,
+            upperAngle=np.pi / 3,
+        )
+        self.arms.append(forearm)
+        self.joints.append(self.world.CreateJoint(rjd))
 
-            hand = self.world.CreateDynamicBody(
-                position=(init_x + ARM_L - HAND_L / 2, init_y + ARM_L),
-                angle=0,
-                fixtures=HAND_FD,
-            )
-            hand.color1 = (0, 0, 255)
-            hand.color2 = (0, 0, 255)
-            rjd = revoluteJointDef(
-                bodyA=forearm,
-                bodyB=hand,
-                localAnchorA=(0, ARM_L / 2),
-                localAnchorB=(HAND_L / 2, 0),
-                enableMotor=True,
-                enableLimit=True,
-                maxMotorTorque=MOTORS_TORQUE,
-                motorSpeed=0,
-                lowerAngle=-np.pi / 3,
-                upperAngle=np.pi / 3,
-            )
-            self.arms.append(hand)
-            self.joints.append(self.world.CreateJoint(rjd))
-
-            # hand = self.world.CreateDynamicBody(
-            #     position=(init_x)
-            # )
-
-            # leg = self.world.CreateDynamicBody(
-            #     position=(init_x, init_y - LEG_H / 2 - LEG_DOWN),
-            #     angle=(i * 0.05),
-            #     fixtures=LEG_FD,
-            # )
-            # leg.color1 = (153 - i * 25, 76 - i * 25, 127 - i * 25)
-            # leg.color2 = (102 - i * 25, 51 - i * 25, 76 - i * 25)
-            # rjd = revoluteJointDef(
-            #     bodyA=self.hull,
-            #     bodyB=leg,
-            #     localAnchorA=(0, LEG_DOWN),
-            #     localAnchorB=(0, LEG_H / 2),
-            #     enableMotor=True,
-            #     enableLimit=True,
-            #     maxMotorTorque=MOTORS_TORQUE,
-            #     motorSpeed=i,
-            #     lowerAngle=-0.8,
-            #     upperAngle=1.1,
-            # )
-            # # leg.ground_contact = False
-            # self.arms.append(leg)
-            # self.joints.append(self.world.CreateJoint(rjd))
-
-            # lower = self.world.CreateDynamicBody(
-            #     position=(init_x, init_y - LEG_H * 3 / 2 - LEG_DOWN),
-            #     angle=(i * 0.05),
-            #     fixtures=LOWER_FD,
-            # )
-            # lower.color1 = (153 - i * 25, 76 - i * 25, 127 - i * 25)
-            # lower.color2 = (102 - i * 25, 51 - i * 25, 76 - i * 25)
-            # rjd = revoluteJointDef(
-            #     bodyA=leg,
-            #     bodyB=lower,
-            #     localAnchorA=(0, -LEG_H / 2),
-            #     localAnchorB=(0, LEG_H / 2),
-            #     enableMotor=True,
-            #     enableLimit=True,
-            #     maxMotorTorque=MOTORS_TORQUE,
-            #     motorSpeed=1,
-            #     lowerAngle=-1.6,
-            #     upperAngle=-0.1,
-            # )
-            # lower.ground_contact = False
-            # self.arms.append(lower)
-            # self.joints.append(self.world.CreateJoint(rjd))
-
-            foot = self.world.CreateDynamicBody(
-                position=(init_x, init_y - LEG_H * 3 / 2 - LEG_DOWN),
-                angle=(i * 0.05),
-                fixtures=LOWER_FD,
-            )
+        hand = self.world.CreateDynamicBody(
+            position=(init_x + ARM_L - HAND_L / 2, init_y + ARM_L),
+            angle=0,
+            fixtures=HAND_FD,
+        )
+        hand.color1 = (0, 0, 255)
+        hand.color2 = (0, 0, 255)
+        rjd = revoluteJointDef(
+            bodyA=forearm,
+            bodyB=hand,
+            localAnchorA=(0, ARM_L / 2),
+            localAnchorB=(HAND_L / 2, 0),
+            enableMotor=True,
+            enableLimit=True,
+            maxMotorTorque=MOTORS_TORQUE,
+            motorSpeed=0,
+            lowerAngle=-np.pi / 3,
+            upperAngle=np.pi / 3,
+        )
+        self.arms.append(hand)
+        self.joints.append(self.world.CreateJoint(rjd))
 
         self.drawlist = self.terrain + self.arms + [self.hull]
 
         # self._add_ball(position=(init_x + 2, init_y + 2), radius=0.5)
 
-        class LidarCallback(Box2D.b2.rayCastCallback):
-            def ReportFixture(self, fixture, point, normal, fraction):
-                if (fixture.filterData.categoryBits & 1) == 0:
-                    return -1
-                self.p2 = point
-                self.fraction = fraction
-                return fraction
-
-        self.lidar = [LidarCallback() for _ in range(10)]
         if self.render_mode == "human":
             self.render()
         return self.step(np.array([0, 0, 0, 0]))[0], {}
@@ -573,34 +483,24 @@ class BipedalWalker(gym.Env, EzPickle):
         pos = self.hull.position
         vel = self.hull.linearVelocity
 
-        for i in range(10):
-            self.lidar[i].fraction = 1.0
-            self.lidar[i].p1 = pos
-            self.lidar[i].p2 = (
-                pos[0] + math.sin(1.5 * i / 10.0) * LIDAR_RANGE,
-                pos[1] - math.cos(1.5 * i / 10.0) * LIDAR_RANGE,
-            )
-            self.world.RayCast(self.lidar[i], self.lidar[i].p1, self.lidar[i].p2)
-
         state = [
-            self.hull.angle,  # Normal angles up to 0.5 here, but sure more is possible.
-            2.0 * self.hull.angularVelocity / FPS,
-            0.3 * vel.x * (VIEWPORT_W / SCALE) / FPS,  # Normalized to get -1..1 range
-            0.3 * vel.y * (VIEWPORT_H / SCALE) / FPS,
+            # self.hull.angle,  # Normal angles up to 0.5 here, but sure more is possible.
+            # 2.0 * self.hull.angularVelocity / FPS,
+            # 0.3 * vel.x * (VIEWPORT_W / SCALE) / FPS,  # Normalized to get -1..1 range
+            # 0.3 * vel.y * (VIEWPORT_H / SCALE) / FPS,
             self.joints[0].angle,
             # This will give 1.1 on high up, but it's still OK (and there should be spikes on hitting the ground, that's normal too)
             self.joints[0].speed / SPEED_SHOULDER,
-            self.joints[1].angle + 1.0,
+            self.joints[1].angle,
             self.joints[1].speed / SPEED_ELBOW,
-            self.joints[2].angle + 1.0,
+            self.joints[2].angle,
             self.joints[2].speed / SPEED_WRIST,
             # 1.0 if self.arms[1].ground_contact else 0.0,
-            0.0,
+            # 0.0,
         ]
-        state += [l.fraction for l in self.lidar]
         # assert len(state) == 24
         # print(len(state))
-        assert len(state) == 21
+        assert len(state) == 6
 
         self.scroll = pos.x - VIEWPORT_W / SCALE / 5
 
@@ -685,23 +585,6 @@ class BipedalWalker(gym.Env, EzPickle):
             pygame.draw.polygon(self.surf, color=color, points=scaled_poly)
             gfxdraw.aapolygon(self.surf, scaled_poly, color)
 
-        self.lidar_render = (self.lidar_render + 1) % 100
-        i = self.lidar_render
-        if i < 2 * len(self.lidar):
-            single_lidar = (
-                self.lidar[i]
-                if i < len(self.lidar)
-                else self.lidar[len(self.lidar) - i - 1]
-            )
-            if hasattr(single_lidar, "p1") and hasattr(single_lidar, "p2"):
-                pygame.draw.line(
-                    self.surf,
-                    color=(255, 0, 0),
-                    start_pos=(single_lidar.p1[0] * SCALE, single_lidar.p1[1] * SCALE),
-                    end_pos=(single_lidar.p2[0] * SCALE, single_lidar.p2[1] * SCALE),
-                    width=1,
-                )
-
         for obj in self.drawlist:
             for f in obj.fixtures:
                 trans = f.body.transform
@@ -785,42 +668,10 @@ class BipedalWalkerHeuristics:
     a = np.array([0.0, 0.0, 0.0, 0.0])
 
     def step_heuristic(self, s):
-        moving_s_base = 4 + 5 * self.moving_leg
-        supporting_s_base = 4 + 5 * self.supporting_leg
-
         hip_targ = [None, None]  # -0.8 .. +1.1
         knee_targ = [None, None]  # -0.6 .. +0.9
         hip_todo = [0.0, 0.0]
         knee_todo = [0.0, 0.0]
-
-        if self.state == self.STAY_ON_ONE_LEG:
-            hip_targ[self.moving_leg] = 1.1
-            knee_targ[self.moving_leg] = -0.6
-            self.supporting_knee_angle += 0.03
-            if s[2] > self.SPEED:
-                self.supporting_knee_angle += 0.03
-            self.supporting_knee_angle = min(
-                self.supporting_knee_angle, self.SUPPORT_KNEE_ANGLE
-            )
-            knee_targ[self.supporting_leg] = self.supporting_knee_angle
-            if s[supporting_s_base + 0] < 0.10:  # supporting leg is behind
-                self.state = self.PUT_OTHER_DOWN
-        if self.state == self.PUT_OTHER_DOWN:
-            hip_targ[self.moving_leg] = +0.1
-            knee_targ[self.moving_leg] = self.SUPPORT_KNEE_ANGLE
-            knee_targ[self.supporting_leg] = self.supporting_knee_angle
-            if s[moving_s_base + 4]:
-                self.state = self.PUSH_OFF
-                self.supporting_knee_angle = min(
-                    s[moving_s_base + 2], self.SUPPORT_KNEE_ANGLE
-                )
-        if self.state == self.PUSH_OFF:
-            knee_targ[self.moving_leg] = self.supporting_knee_angle
-            knee_targ[self.supporting_leg] = +1.0
-            if s[supporting_s_base + 2] > 0.88 or s[2] > 1.2 * self.SPEED:
-                self.state = self.STAY_ON_ONE_LEG
-                self.moving_leg = 1 - self.moving_leg
-                self.supporting_leg = 1 - self.moving_leg
 
         if hip_targ[0]:
             hip_todo[0] = 0.9 * (hip_targ[0] - s[4]) - 0.25 * s[5]
