@@ -40,9 +40,6 @@ SPEED_WRIST = 4
 
 INITIAL_RANDOM = 5
 
-LEG_DOWN = -8 / SCALE
-LEG_W, LEG_H = 8 / SCALE, 34 / SCALE
-
 ARM_L = 50 / SCALE
 ARM_W = 4 / SCALE
 HAND_L = 25 / SCALE
@@ -126,15 +123,13 @@ class BipedalWalker(gym.Env, EzPickle):
             friction=0.3,
             restitution=0.6,  # bounciness
         )
-        ball = self.world.CreateDynamicBody(
+        self.ball = self.world.CreateDynamicBody(
             position=position,
             fixtures=ball_fixture,
         )
-        ball.color1 = (255, 165, 0) #inside color
-        ball.color2 = (204, 102, 0) #border color
-        self.drawlist.append(ball)
-
-        return ball
+        self.ball.color1 = (255, 165, 0) #inside color
+        self.ball.color2 = (204, 102, 0) #border color
+        self.drawlist.append(self.ball)
     """
     ## Description
     This is a simple 4-joint walker robot environment.
@@ -365,7 +360,7 @@ class BipedalWalker(gym.Env, EzPickle):
         print(self.terrain)
 
         init_x = TERRAIN_STEP * TERRAIN_STARTPAD / 2
-        init_y = TERRAIN_HEIGHT + 2 * LEG_H
+        init_y = TERRAIN_HEIGHT + 2 * ARM_L
         
         self.hull = self.world.CreateStaticBody(
             position=(init_x, init_y), fixtures=HULL_FD,
@@ -485,6 +480,8 @@ class BipedalWalker(gym.Env, EzPickle):
             # 2.0 * self.hull.angularVelocity / FPS,
             # 0.3 * vel.x * (VIEWPORT_W / SCALE) / FPS,  # Normalized to get -1..1 range
             # 0.3 * vel.y * (VIEWPORT_H / SCALE) / FPS,
+            self.ball.position[0],
+            self.ball.position[1],
             self.joints[0].angle,
             # This will give 1.1 on high up, but it's still OK (and there should be spikes on hitting the ground, that's normal too)
             self.joints[0].speed / SPEED_SHOULDER,
@@ -497,7 +494,7 @@ class BipedalWalker(gym.Env, EzPickle):
         ]
         # assert len(state) == 24
         # print(len(state))
-        assert len(state) == 6
+        assert len(state) == 8
 
         self.scroll = pos.x - VIEWPORT_W / SCALE / 5
 
@@ -697,6 +694,12 @@ if __name__ == "__main__":
         steps += 1
 
         a = heuristics.step_heuristic(s)
+
+        if steps > 300:
+            env.reset()
+            steps = 0
+            total_reward = 0
+            a = np.array([0.0, 0.0, 0.0])
 
         if terminated or truncated:
             break
