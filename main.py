@@ -100,6 +100,25 @@ class ContactDetector(contactListener):
             if leg in [contact.fixtureA.body, contact.fixtureB.body]:
                 leg.ground_contact = False
 
+class BasketballEnvironment():
+    print()
+    def _add_ball(self, position=(10, 10), radius=0.5):
+        ball_fixture = fixtureDef(
+        shape=circleShape(radius=radius),
+        density=1.0,
+        friction=0.3,
+        restitution=0.6,  # bounciness
+    )
+        ball = self.world.CreateDynamicBody(
+        position=position,
+        fixtures=ball_fixture,
+    )
+        ball.color1 = (255, 165, 0) #inside color
+        ball.color2 = (204, 102, 0) #border color
+        self.drawlist.append(ball)
+
+        return ball
+
 
 class BipedalWalker(gym.Env, EzPickle):
     """
@@ -318,6 +337,8 @@ class BipedalWalker(gym.Env, EzPickle):
         seed: int | None = None,
         options: dict | None = None,
     ):
+        
+
         super().reset(seed=seed)
         self._destroy()
         self.world.contactListener_bug_workaround = ContactDetector(self)
@@ -390,6 +411,8 @@ class BipedalWalker(gym.Env, EzPickle):
             self.joints.append(self.world.CreateJoint(rjd))
 
         self.drawlist = self.terrain + self.legs + [self.hull]
+
+        self._add_ball(position=(init_x + 2, init_y + 2), radius=0.5)
 
         class LidarCallback(Box2D.b2.rayCastCallback):
             def ReportFixture(self, fixture, point, normal, fraction):
